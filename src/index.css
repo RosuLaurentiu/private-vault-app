@@ -325,6 +325,7 @@ body {
   margin: 8px 0 0;
   font-size: 0.78rem;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .flow-chip {
@@ -475,6 +476,41 @@ input:focus {
   gap: 8px;
 }
 
+.mini-stats-header {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mini-stats-header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.private-toggle {
+  border: 1px solid #3a3555;
+  border-radius: 9px;
+  background: rgba(139, 92, 246, 0.12);
+  color: #d6c8ff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+.private-toggle:hover {
+  filter: brightness(1.06);
+}
+
+.private-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .mini-stats > div {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -493,6 +529,7 @@ input:focus {
   display: block;
   font-size: 0.88rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .settings {

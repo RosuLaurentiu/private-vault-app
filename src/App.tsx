@@ -7,7 +7,8 @@ import {
   parseUnits,
   type ContractTransactionResponse,
   type JsonRpcSigner,
-} from "ethers";
+  type OnboardInfo,
+} from "@coti-io/coti-ethers";
 
 type Asset = "USDC" | "COTI";
 type Direction = "toPrivate" | "toPublic";
@@ -25,10 +26,12 @@ interface StatsState {
   usdcDecimals: number;
   walletUsdc: string;
   walletUsdcRaw: bigint;
+  walletPrivateUsdcCipher: bigint;
   walletPrivateUsdc: string;
   walletPrivateUsdcRaw: bigint;
   walletCoti: string;
   walletCotiRaw: bigint;
+  walletPrivateCotiCipher: bigint;
   walletPrivateCoti: string;
   walletPrivateCotiRaw: bigint;
   usdcAllowanceRaw: bigint;
@@ -90,10 +93,12 @@ const EMPTY_STATS: StatsState = {
   usdcDecimals: 6,
   walletUsdc: "-",
   walletUsdcRaw: 0n,
+  walletPrivateUsdcCipher: 0n,
   walletPrivateUsdc: "-",
   walletPrivateUsdcRaw: 0n,
   walletCoti: "-",
   walletCotiRaw: 0n,
+  walletPrivateCotiCipher: 0n,
   walletPrivateCoti: "-",
   walletPrivateCotiRaw: 0n,
   usdcAllowanceRaw: 0n,
@@ -163,11 +168,13 @@ function App() {
   const [account, setAccount] = useState("");
   const [chainId, setChainId] = useState<number | null>(null);
   const [stats, setStats] = useState<StatsState>(EMPTY_STATS);
-  const [asset, setAsset] = useState<Asset>("USDC");
+  const [asset, setAsset] = useState<Asset>("COTI");
   const [direction, setDirection] = useState<Direction>("toPrivate");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showPrivateBalances, setShowPrivateBalances] = useState(false);
+  const [onboardInfo, setOnboardInfo] = useState<OnboardInfo | undefined>(undefined);
   const [txState, setTxState] = useState<TxState>({
     type: "idle",
     message: CONTRACTS_READY
@@ -208,18 +215,34 @@ function App() {
 
   const fromBalanceRaw = useMemo(() => {
     if (asset === "USDC") {
-      return direction === "toPrivate" ? stats.walletUsdcRaw : stats.walletPrivateUsdcRaw;
+      if (direction === "toPrivate") return stats.walletUsdcRaw;
+      return showPrivateBalances ? stats.walletPrivateUsdcRaw : 0n;
     }
-    return direction === "toPrivate" ? stats.walletCotiRaw : stats.walletPrivateCotiRaw;
-  }, [asset, direction, stats.walletUsdcRaw, stats.walletPrivateUsdcRaw, stats.walletCotiRaw, stats.walletPrivateCotiRaw]);
+    if (direction === "toPrivate") return stats.walletCotiRaw;
+    return showPrivateBalances ? stats.walletPrivateCotiRaw : 0n;
+  }, [
+    asset,
+    direction,
+    showPrivateBalances,
+    stats.walletUsdcRaw,
+    stats.walletPrivateUsdcRaw,
+    stats.walletCotiRaw,
+    stats.walletPrivateCotiRaw,
+  ]);
 
   const fromBalanceText = useMemo(() => {
     if (asset === "USDC") {
       return direction === "toPrivate"
         ? `${stats.walletUsdc} ${stats.usdcSymbol}`
-        : `${stats.walletPrivateUsdc} pUSDC`;
+        : showPrivateBalances
+          ? `${stats.walletPrivateUsdc} pUSDC`
+          : "Private balance hidden";
     }
-    return direction === "toPrivate" ? `${stats.walletCoti} COTI` : `${stats.walletPrivateCoti} pCOTI`;
+    return direction === "toPrivate"
+      ? `${stats.walletCoti} COTI`
+      : showPrivateBalances
+        ? `${stats.walletPrivateCoti} pCOTI`
+        : "Private balance hidden";
   }, [
     asset,
     direction,
@@ -228,7 +251,11 @@ function App() {
     stats.walletPrivateUsdc,
     stats.walletCoti,
     stats.walletPrivateCoti,
+    showPrivateBalances,
   ]);
+
+  const privateUsdcStat = !connected ? "-" : showPrivateBalances ? stats.walletPrivateUsdc : "****";
+  const privateCotiStat = !connected ? "-" : showPrivateBalances ? stats.walletPrivateCoti : "****";
 
   const receivePreview = useMemo(() => {
     if (!amount.trim()) return "0";
@@ -288,6 +315,8 @@ function App() {
     setAmount("");
     setBusy("");
     setIsRefreshing(false);
+    setShowPrivateBalances(false);
+    setOnboardInfo(undefined);
     setTxState({ type: "idle", message });
   }, []);
 
@@ -399,7 +428,7 @@ function App() {
       }
       try {
         setBusy(action);
-        const signer = await provider.getSigner();
+        const signer = await provider.getSigner(account, onboardInfo);
         const tx = await builder(signer);
         setTxState({
           type: "pending",
@@ -414,87 +443,190 @@ function App() {
         setBusy("");
       }
     },
-    [provider, account],
+    [provider, account, onboardInfo],
   );
 
-  const refreshData = useCallback(async () => {
-    if (!provider || !account || !CONTRACTS_READY) return;
-    setIsRefreshing(true);
-    const patch: Partial<StatsState> = {};
+  const refreshData = useCallback(
+    async (decryptionSigner?: JsonRpcSigner) => {
+      if (!provider || !account || !CONTRACTS_READY) return;
+      setIsRefreshing(true);
+      const patch: Partial<StatsState> = {};
+      let usdcPrivateCipher: bigint | null = null;
+      let cotiPrivateCipher: bigint | null = null;
+      let usdcPrivateDecimals = 6;
+      let cotiPrivateDecimals = 6;
 
-    try {
-      const coti = await provider.getBalance(account);
-      patch.walletCotiRaw = coti;
-      patch.walletCoti = formatShort(coti, 18, 6);
-    } catch {
-      patch.walletCoti = "-";
+      try {
+        const coti = await provider.getBalance(account);
+        patch.walletCotiRaw = coti;
+        patch.walletCoti = formatShort(coti, 18, 6);
+      } catch {
+        patch.walletCoti = "-";
+      }
+
+      try {
+        const usdcVault = new Contract(DEPLOYED.usdcPrivateVault, USDC_VAULT_ABI, provider);
+        const [publicTokenAddress, usdcReserve, usdcFeeWei] = await Promise.all([
+          usdcVault.publicToken(),
+          usdcVault.publicReserve(),
+          usdcVault.swapFeeWei(),
+        ]);
+
+        patch.usdcTokenAddress = String(publicTokenAddress);
+        patch.usdcReserve = formatShort(usdcReserve as bigint, 6, 4);
+        patch.usdcFeeWei = usdcFeeWei as bigint;
+        patch.usdcFee = formatShort(usdcFeeWei as bigint, 18, 6);
+
+        const usdcToken = new Contract(String(publicTokenAddress), ERC20_ABI, provider);
+        const [symbol, decimals, balance, allowance] = await Promise.all([
+          usdcToken.symbol(),
+          usdcToken.decimals(),
+          usdcToken.balanceOf(account),
+          usdcToken.allowance(account, DEPLOYED.usdcPrivateVault),
+        ]);
+
+        const usdcDecimals = Number(decimals);
+        patch.usdcSymbol = String(symbol);
+        patch.usdcDecimals = usdcDecimals;
+        patch.walletUsdcRaw = balance as bigint;
+        patch.walletUsdc = formatShort(balance as bigint, usdcDecimals, 4);
+        patch.usdcAllowanceRaw = allowance as bigint;
+        patch.usdcAllowance = formatShort(allowance as bigint, usdcDecimals, 4);
+
+        const privateUsdc = new Contract(DEPLOYED.privateUsdc, PRIVATE_TOKEN_ABI, provider);
+        const [supply, tokenDecimals, privateBalance] = await Promise.all([
+          privateUsdc.totalSupply(),
+          privateUsdc.decimals(),
+          privateUsdc.balanceOf(account),
+        ]);
+        usdcPrivateDecimals = Number(tokenDecimals);
+        patch.usdcPrivateSupply = formatShort(supply as bigint, usdcPrivateDecimals, 4);
+        usdcPrivateCipher = privateBalance as bigint;
+        patch.walletPrivateUsdcCipher = usdcPrivateCipher;
+      } catch {
+        patch.usdcReserve = "-";
+        patch.walletPrivateUsdcCipher = 0n;
+      }
+
+      try {
+        const cotiVault = new Contract(DEPLOYED.cotiPrivateVault, COTI_VAULT_ABI, provider);
+        const [cotiReserve, cotiFeeWei] = await Promise.all([cotiVault.nativeReserve(), cotiVault.swapFeeWei()]);
+        patch.cotiReserve = formatShort(cotiReserve as bigint, 18, 6);
+        patch.cotiFeeWei = cotiFeeWei as bigint;
+        patch.cotiFee = formatShort(cotiFeeWei as bigint, 18, 6);
+
+        const privateCoti = new Contract(DEPLOYED.privateCoti, PRIVATE_TOKEN_ABI, provider);
+        const [supply, tokenDecimals, privateBalance] = await Promise.all([
+          privateCoti.totalSupply(),
+          privateCoti.decimals(),
+          privateCoti.balanceOf(account),
+        ]);
+        cotiPrivateDecimals = Number(tokenDecimals);
+        patch.cotiPrivateSupply = formatShort(supply as bigint, cotiPrivateDecimals, 4);
+        cotiPrivateCipher = privateBalance as bigint;
+        patch.walletPrivateCotiCipher = cotiPrivateCipher;
+      } catch {
+        patch.cotiReserve = "-";
+        patch.walletPrivateCotiCipher = 0n;
+      }
+
+      const shouldAttemptDecrypt = !!decryptionSigner || (!!showPrivateBalances && !!onboardInfo?.aesKey);
+      if (shouldAttemptDecrypt) {
+        try {
+          const signer = decryptionSigner ?? (await provider.getSigner(account, onboardInfo));
+          const nextOnboardInfo = signer.getUserOnboardInfo();
+          if (nextOnboardInfo?.aesKey) {
+            setOnboardInfo(nextOnboardInfo);
+          }
+
+          if (usdcPrivateCipher !== null) {
+            if (usdcPrivateCipher === 0n) {
+              patch.walletPrivateUsdcRaw = 0n;
+              patch.walletPrivateUsdc = "0";
+            } else {
+              const decryptedUsdc = await signer.decryptValue(usdcPrivateCipher);
+              if (typeof decryptedUsdc !== "bigint") throw new Error("Unexpected private USDC decrypt value.");
+              patch.walletPrivateUsdcRaw = decryptedUsdc;
+              patch.walletPrivateUsdc = formatShort(decryptedUsdc, usdcPrivateDecimals, 4);
+            }
+          } else {
+            patch.walletPrivateUsdcRaw = 0n;
+            patch.walletPrivateUsdc = "-";
+          }
+
+          if (cotiPrivateCipher !== null) {
+            if (cotiPrivateCipher === 0n) {
+              patch.walletPrivateCotiRaw = 0n;
+              patch.walletPrivateCoti = "0";
+            } else {
+              const decryptedCoti = await signer.decryptValue(cotiPrivateCipher);
+              if (typeof decryptedCoti !== "bigint") throw new Error("Unexpected private COTI decrypt value.");
+              patch.walletPrivateCotiRaw = decryptedCoti;
+              patch.walletPrivateCoti = formatShort(decryptedCoti, cotiPrivateDecimals, 4);
+            }
+          } else {
+            patch.walletPrivateCotiRaw = 0n;
+            patch.walletPrivateCoti = "-";
+          }
+        } catch {
+          patch.walletPrivateUsdcRaw = 0n;
+          patch.walletPrivateUsdc = "-";
+          patch.walletPrivateCotiRaw = 0n;
+          patch.walletPrivateCoti = "-";
+        }
+      } else {
+        patch.walletPrivateUsdcRaw = 0n;
+        patch.walletPrivateUsdc = "-";
+        patch.walletPrivateCotiRaw = 0n;
+        patch.walletPrivateCoti = "-";
+      }
+
+      setStats((prev) => ({ ...prev, ...patch }));
+      setIsRefreshing(false);
+    },
+    [provider, account, showPrivateBalances, onboardInfo],
+  );
+
+  const togglePrivateBalances = useCallback(async () => {
+    if (showPrivateBalances) {
+      setShowPrivateBalances(false);
+      return;
+    }
+
+    if (!provider || !account) {
+      setTxState({ type: "error", message: "Connect wallet first." });
+      return;
+    }
+    if (networkMismatch) {
+      setTxState({ type: "error", message: "Switch to COTI Mainnet before decrypting private balances." });
+      return;
     }
 
     try {
-      const usdcVault = new Contract(DEPLOYED.usdcPrivateVault, USDC_VAULT_ABI, provider);
-      const [publicTokenAddress, usdcReserve, usdcFeeWei] = await Promise.all([
-        usdcVault.publicToken(),
-        usdcVault.publicReserve(),
-        usdcVault.swapFeeWei(),
-      ]);
+      setBusy("unlock-private");
+      setTxState({
+        type: "pending",
+        message: "Requesting wallet signature for AES key and private balance decrypt...",
+      });
 
-      patch.usdcTokenAddress = String(publicTokenAddress);
-      patch.usdcReserve = formatShort(usdcReserve as bigint, 6, 4);
-      patch.usdcFeeWei = usdcFeeWei as bigint;
-      patch.usdcFee = formatShort(usdcFeeWei as bigint, 18, 6);
+      const signer = await provider.getSigner(account, onboardInfo);
+      await signer.generateOrRecoverAes();
 
-      const usdcToken = new Contract(String(publicTokenAddress), ERC20_ABI, provider);
-      const [symbol, decimals, balance, allowance] = await Promise.all([
-        usdcToken.symbol(),
-        usdcToken.decimals(),
-        usdcToken.balanceOf(account),
-        usdcToken.allowance(account, DEPLOYED.usdcPrivateVault),
-      ]);
+      const nextOnboardInfo = signer.getUserOnboardInfo();
+      if (!nextOnboardInfo?.aesKey) {
+        throw new Error("Failed to recover AES key.");
+      }
 
-      const usdcDecimals = Number(decimals);
-      patch.usdcSymbol = String(symbol);
-      patch.usdcDecimals = usdcDecimals;
-      patch.walletUsdcRaw = balance as bigint;
-      patch.walletUsdc = formatShort(balance as bigint, usdcDecimals, 4);
-      patch.usdcAllowanceRaw = allowance as bigint;
-      patch.usdcAllowance = formatShort(allowance as bigint, usdcDecimals, 4);
-
-      const privateUsdc = new Contract(DEPLOYED.privateUsdc, PRIVATE_TOKEN_ABI, provider);
-      const [supply, tokenDecimals, privateBalance] = await Promise.all([
-        privateUsdc.totalSupply(),
-        privateUsdc.decimals(),
-        privateUsdc.balanceOf(account),
-      ]);
-      patch.usdcPrivateSupply = formatShort(supply as bigint, Number(tokenDecimals), 4);
-      patch.walletPrivateUsdcRaw = privateBalance as bigint;
-      patch.walletPrivateUsdc = formatShort(privateBalance as bigint, Number(tokenDecimals), 4);
-    } catch {
-      patch.usdcReserve = "-";
+      setOnboardInfo(nextOnboardInfo);
+      setShowPrivateBalances(true);
+      await refreshData(signer);
+      setTxState({ type: "success", message: "Private balances decrypted and revealed." });
+    } catch (error) {
+      setTxState({ type: "error", message: parseRpcError(error) });
+    } finally {
+      setBusy("");
     }
-
-    try {
-      const cotiVault = new Contract(DEPLOYED.cotiPrivateVault, COTI_VAULT_ABI, provider);
-      const [cotiReserve, cotiFeeWei] = await Promise.all([cotiVault.nativeReserve(), cotiVault.swapFeeWei()]);
-      patch.cotiReserve = formatShort(cotiReserve as bigint, 18, 6);
-      patch.cotiFeeWei = cotiFeeWei as bigint;
-      patch.cotiFee = formatShort(cotiFeeWei as bigint, 18, 6);
-
-      const privateCoti = new Contract(DEPLOYED.privateCoti, PRIVATE_TOKEN_ABI, provider);
-      const [supply, tokenDecimals, privateBalance] = await Promise.all([
-        privateCoti.totalSupply(),
-        privateCoti.decimals(),
-        privateCoti.balanceOf(account),
-      ]);
-      patch.cotiPrivateSupply = formatShort(supply as bigint, Number(tokenDecimals), 4);
-      patch.walletPrivateCotiRaw = privateBalance as bigint;
-      patch.walletPrivateCoti = formatShort(privateBalance as bigint, Number(tokenDecimals), 4);
-    } catch {
-      patch.cotiReserve = "-";
-    }
-
-    setStats((prev) => ({ ...prev, ...patch }));
-    setIsRefreshing(false);
-  }, [provider, account]);
+  }, [showPrivateBalances, provider, account, networkMismatch, onboardInfo, refreshData]);
 
   const submitSwap = useCallback(async () => {
     if (!CONTRACTS_READY) {
@@ -600,11 +732,14 @@ function App() {
         return;
       }
       setAccount(next[0]);
+      setShowPrivateBalances(false);
+      setOnboardInfo(undefined);
     };
 
     const onChainChanged: Eip1193Listener = (next) => {
       if (typeof next === "string") {
         setChainId(Number.parseInt(next, 16));
+        setShowPrivateBalances(false);
       }
     };
 
@@ -680,17 +815,17 @@ function App() {
           <div className="segmented">
             <button
               type="button"
-              className={asset === "USDC" ? "active" : ""}
-              onClick={() => setAsset("USDC")}
-            >
-              USDC.e
-            </button>
-            <button
-              type="button"
               className={asset === "COTI" ? "active" : ""}
               onClick={() => setAsset("COTI")}
             >
               COTI
+            </button>
+            <button
+              type="button"
+              className={asset === "USDC" ? "active" : ""}
+              onClick={() => setAsset("USDC")}
+            >
+              USDC.e
             </button>
           </div>
           <div className="segmented">
@@ -782,30 +917,42 @@ function App() {
           ) : null}
         </div>
 
+        <div className="mini-stats-header">
+          <span>Vault & Private Stats</span>
+          <button
+            className="private-toggle"
+            type="button"
+            onClick={() => void togglePrivateBalances()}
+            disabled={!connected || !!busy}
+          >
+            {busy === "unlock-private" ? "Decrypting..." : showPrivateBalances ? "Hide Private" : "Reveal Private"}
+          </button>
+        </div>
+
         <div className="mini-stats">
-          <div>
-            <span>USDC Vault Reserve</span>
-            <strong>{stats.usdcReserve}</strong>
-          </div>
           <div>
             <span>COTI Vault Reserve</span>
             <strong>{stats.cotiReserve}</strong>
           </div>
           <div>
-            <span>Private USDC Supply</span>
-            <strong>{stats.usdcPrivateSupply}</strong>
+            <span>USDC Vault Reserve</span>
+            <strong>{stats.usdcReserve}</strong>
           </div>
           <div>
-            <span>Private COTI Supply</span>
-            <strong>{stats.cotiPrivateSupply}</strong>
+            <span>Your Private COTI</span>
+            <strong>{privateCotiStat}</strong>
           </div>
           <div>
-            <span>USDC Vault Fee</span>
-            <strong>{stats.usdcFee} COTI</strong>
+            <span>Your Private USDC</span>
+            <strong>{privateUsdcStat}</strong>
           </div>
           <div>
             <span>COTI Vault Fee</span>
             <strong>{stats.cotiFee} COTI</strong>
+          </div>
+          <div>
+            <span>USDC Vault Fee</span>
+            <strong>{stats.usdcFee} COTI</strong>
           </div>
         </div>
       </main>

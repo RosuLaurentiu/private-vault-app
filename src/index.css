@@ -97,6 +97,17 @@ body {
   gap: 8px;
 }
 
+.wallet-pill {
+  border: 1px solid #3a3555;
+  border-radius: 12px;
+  background: rgba(139, 92, 246, 0.12);
+  color: #ece5ff;
+  padding: 9px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+}
+
 .swap-card {
   background: linear-gradient(180deg, #151522, #10101a);
   border: 1px solid var(--border);

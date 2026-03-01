@@ -280,6 +280,17 @@ function App() {
     !isRefreshing &&
     Number(amount) > 0;
 
+  const clearWalletSession = useCallback((message: string) => {
+    setProvider(null);
+    setAccount("");
+    setChainId(null);
+    setStats(EMPTY_STATS);
+    setAmount("");
+    setBusy("");
+    setIsRefreshing(false);
+    setTxState({ type: "idle", message });
+  }, []);
+
   const connectWallet = useCallback(async () => {
     if (!window.ethereum) {
       setTxState({ type: "error", message: "No wallet detected. Install MetaMask first." });
@@ -300,6 +311,40 @@ function App() {
       setTxState({ type: "error", message: parseRpcError(error) });
     }
   }, []);
+
+  const disconnectWallet = useCallback(() => {
+    clearWalletSession("Wallet disconnected.");
+  }, [clearWalletSession]);
+
+  const switchWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      setTxState({ type: "error", message: "No wallet provider available." });
+      return;
+    }
+    try {
+      try {
+        await window.ethereum.request({
+          method: "wallet_requestPermissions",
+          params: [{ eth_accounts: {} }],
+        });
+      } catch (permissionError) {
+        const code =
+          typeof permissionError === "object" && permissionError !== null
+            ? (permissionError as { code?: number }).code
+            : undefined;
+        if (code === 4001) {
+          setTxState({ type: "error", message: "Wallet switch cancelled." });
+          return;
+        }
+        if (code !== -32601) {
+          throw permissionError;
+        }
+      }
+      await connectWallet();
+    } catch (error) {
+      setTxState({ type: "error", message: parseRpcError(error) });
+    }
+  }, [connectWallet]);
 
   const switchToMainnet = useCallback(async () => {
     if (!window.ethereum) {
@@ -551,7 +596,7 @@ function App() {
 
     const onAccountsChanged: Eip1193Listener = (next) => {
       if (!Array.isArray(next) || next.length === 0 || typeof next[0] !== "string") {
-        setAccount("");
+        clearWalletSession("Wallet disconnected in provider.");
         return;
       }
       setAccount(next[0]);
@@ -569,7 +614,7 @@ function App() {
       window.ethereum?.removeListener?.("accountsChanged", onAccountsChanged);
       window.ethereum?.removeListener?.("chainChanged", onChainChanged);
     };
-  }, []);
+  }, [clearWalletSession]);
 
   useEffect(() => {
     if (!provider || !account) return;
@@ -594,9 +639,21 @@ function App() {
               Switch To Mainnet
             </button>
           ) : null}
-          <button className="btn btn-primary" onClick={connectWallet} type="button">
-            {connected ? shortAddress(account) : "Connect Wallet"}
-          </button>
+          {connected ? (
+            <>
+              <div className="wallet-pill">{shortAddress(account)}</div>
+              <button className="btn btn-secondary" onClick={switchWallet} type="button">
+                Switch Wallet
+              </button>
+              <button className="btn btn-ghost" onClick={disconnectWallet} type="button">
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={connectWallet} type="button">
+              Connect Wallet
+            </button>
+          )}
           <button
             className="btn btn-ghost"
             type="button"

@@ -532,6 +532,74 @@ input:focus {
   overflow-wrap: anywhere;
 }
 
+.token-addresses {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #11111b;
+  padding: 10px;
+}
+
+.token-addresses-head {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.token-address-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #2e2e45;
+  border-radius: 10px;
+  background: #171726;
+  padding: 8px 9px;
+}
+
+.token-address-row + .token-address-row {
+  margin-top: 7px;
+}
+
+.token-address-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.token-address-copy span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.71rem;
+}
+
+.token-address-copy strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.83rem;
+  color: #ece7ff;
+}
+
+.token-address-btn {
+  border: 1px solid #4a4070;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.18);
+  color: #d8c9ff;
+  padding: 7px 10px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.token-address-btn:hover {
+  filter: brightness(1.06);
+}
+
+.token-address-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .settings {
   margin-top: 10px;
 }

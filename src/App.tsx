@@ -163,6 +163,27 @@ function parseRpcError(error: unknown): string {
   return "Operation failed.";
 }
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "true");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(area);
+
+  if (!copied) {
+    throw new Error("Clipboard copy failed.");
+  }
+}
+
 function App() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [account, setAccount] = useState("");
@@ -256,6 +277,16 @@ function App() {
 
   const privateUsdcStat = !connected ? "-" : showPrivateBalances ? stats.walletPrivateUsdc : "****";
   const privateCotiStat = !connected ? "-" : showPrivateBalances ? stats.walletPrivateCoti : "****";
+  const publicUsdcAddress = isAddress(stats.usdcTokenAddress) ? stats.usdcTokenAddress : "";
+
+  const tokenAddresses = useMemo(
+    () => [
+      { key: "pcoti", label: "Private COTI (pCOTI)", address: DEPLOYED.privateCoti },
+      { key: "pusdc", label: "Private USDC (pUSDC)", address: DEPLOYED.privateUsdc },
+      { key: "usdc", label: "USDC.e", address: publicUsdcAddress },
+    ],
+    [publicUsdcAddress],
+  );
 
   const receivePreview = useMemo(() => {
     if (!amount.trim()) return "0";
@@ -628,6 +659,20 @@ function App() {
     }
   }, [showPrivateBalances, provider, account, networkMismatch, onboardInfo, refreshData]);
 
+  const copyTokenAddress = useCallback(async (label: string, address: string) => {
+    if (!isAddress(address)) {
+      setTxState({ type: "error", message: `${label} address is not available yet.` });
+      return;
+    }
+
+    try {
+      await copyText(address);
+      setTxState({ type: "success", message: `${label} address copied.` });
+    } catch (error) {
+      setTxState({ type: "error", message: parseRpcError(error) });
+    }
+  }, []);
+
   const submitSwap = useCallback(async () => {
     if (!CONTRACTS_READY) {
       setTxState({ type: "error", message: "Contract addresses are not configured correctly in app constants." });
@@ -954,6 +999,28 @@ function App() {
             <span>USDC Vault Fee</span>
             <strong>{stats.usdcFee} COTI</strong>
           </div>
+        </div>
+
+        <div className="token-addresses">
+          <div className="token-addresses-head">Token Addresses</div>
+          {tokenAddresses.map(({ key, label, address }) => (
+            <div className="token-address-row" key={key}>
+              <div className="token-address-copy">
+                <span>{label}</span>
+                <strong title={address || "Not loaded yet"}>
+                  {address ? shortAddress(address) : "Not loaded yet"}
+                </strong>
+              </div>
+              <button
+                className="token-address-btn"
+                type="button"
+                disabled={!isAddress(address)}
+                onClick={() => void copyTokenAddress(label, address)}
+              >
+                Copy
+              </button>
+            </div>
+          ))}
         </div>
       </main>
     </div>

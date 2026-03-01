@@ -39,6 +39,12 @@ npm run build
 npm run preview
 ```
 
+## GitHub Pages
+
+- Deploy is automated via `.github/workflows/deploy-pages.yml`.
+- Every push to `main` builds and publishes `dist` to GitHub Pages.
+- Expected URL: `https://rosulaurentiu.github.io/private-vault-app/`
+
 ## Notes
 
 - COTI conversion requires amounts in steps of `0.000001` COTI (`1e12` wei), matching your vault contract constraints.

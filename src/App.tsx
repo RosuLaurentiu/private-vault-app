@@ -629,39 +629,49 @@ function App() {
       <div className="ambient ambient-b" />
 
       <header className="top">
-        <div>
+        <div className="top-copy">
           <h1>Private Vault</h1>
           <p>Swap between public and private balances on COTI Mainnet.</p>
         </div>
-        <div className="top-actions">
-          {networkMismatch ? (
-            <button className="btn btn-secondary" onClick={switchToMainnet} type="button">
-              Switch To Mainnet
-            </button>
-          ) : null}
+        <div className="wallet-panel">
           {connected ? (
             <>
-              <div className="wallet-pill">{shortAddress(account)}</div>
-              <button className="btn btn-secondary" onClick={switchWallet} type="button">
-                Switch Wallet
-              </button>
-              <button className="btn btn-ghost" onClick={disconnectWallet} type="button">
-                Disconnect
-              </button>
+              <div className="wallet-head">
+                <div className="wallet-address">{shortAddress(account)}</div>
+                <button className="wallet-switch" onClick={switchWallet} type="button">
+                  Switch
+                </button>
+              </div>
+
+              <div className="wallet-status">
+                <span className={`network-dot ${networkMismatch ? "network-dot-warning" : "network-dot-ok"}`} />
+                <span>{networkMismatch ? "Wrong Network" : "COTI Mainnet"}</span>
+                {networkMismatch ? (
+                  <button className="wallet-fix" type="button" onClick={switchToMainnet}>
+                    Fix
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="wallet-actions">
+                <button
+                  className="wallet-action-btn"
+                  type="button"
+                  onClick={() => void refreshData()}
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing ? "Refreshing..." : "Refresh"}
+                </button>
+                <button className="wallet-action-btn" onClick={disconnectWallet} type="button">
+                  Disconnect
+                </button>
+              </div>
             </>
           ) : (
-            <button className="btn btn-primary" onClick={connectWallet} type="button">
+            <button className="btn btn-primary wallet-connect" onClick={connectWallet} type="button">
               Connect Wallet
             </button>
           )}
-          <button
-            className="btn btn-ghost"
-            type="button"
-            onClick={() => void refreshData()}
-            disabled={!connected || isRefreshing}
-          >
-            {isRefreshing ? "Refreshing..." : "Refresh"}
-          </button>
         </div>
       </header>
 

@@ -14,7 +14,7 @@ import {
 } from "./arb/bridgeTracker";
 import { APP_CONFIG } from "./arb/config";
 import { buildQuote, loadWalletInventory, preparePlan, prepareRebalancePlan } from "./arb/engine";
-import { checkPreparedStepBeforeSigning, preSignWarningText } from "./arb/preSignCheck";
+import { assertPreparedStepStillExecutable, checkPreparedStepBeforeSigning, preSignWarningText } from "./arb/preSignCheck";
 import { quoteReviewWarnings } from "./arb/reviewWarnings";
 import { waitForTransactionReceipt } from "./arb/receipts";
 import { tradeSummaryText } from "./arb/tradeMetadata";
@@ -551,6 +551,7 @@ function App() {
           const text = `Step ${step.index} ${step.label}: Wallet state recheck failed: ${parseError(checkError)}`;
           setSignWarnings((items) => appendUnique(items, [text]));
         }
+        await assertPreparedStepStillExecutable(step);
         await switchChain(selectedProvider, {
           blockExplorerUrls: [step.chain === "ethereum" ? APP_CONFIG.ethereum.explorer : APP_CONFIG.coti.explorer],
           chainIdHex: step.chain === "ethereum" ? APP_CONFIG.ethereum.chainIdHex : APP_CONFIG.coti.chainIdHex,
@@ -593,9 +594,10 @@ function App() {
       await refreshInventory(true);
       setMessage(prepared.kind === "rebalance" ? "Bridge submitted. Tracking arrival." : "Submitted. Refresh before trading again.");
     } catch (error) {
+      const errorText = parseError(error);
       setFlow("error");
-      setMessage(parseError(error));
-      setProgress((items) => items.map((item) => item.status === "pending" || item.status === "mining" ? { ...item, message: "Failed, rejected, or timed out", status: "error" } : item));
+      setMessage(errorText);
+      setProgress((items) => items.map((item) => item.status === "pending" || item.status === "mining" ? { ...item, message: errorText, status: "error" } : item));
     }
   }, [prepared, refreshInventory, refreshTrackedBridges, selectedProvider]);
 

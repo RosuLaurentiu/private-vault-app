@@ -852,7 +852,10 @@ async function buildUniswapSteps(state: WalletState, opportunity: Opportunity): 
     tokenDecimals: sourceInfo.decimals,
     tokenSymbol: sourceInfo.symbol,
   });
-  const gas = await ethProvider.estimateGas({ from: state.owner, to: APP_CONFIG.uniswap.router, data, value: 0 }).then((estimate) => gasWithBuffer(estimate, APP_CONFIG.gasLimitBufferBps)).catch(() => null);
+  const gas = await ethProvider.estimateGas({ from: state.owner, to: APP_CONFIG.uniswap.router, data, value: 0 }).then((estimate) => gasWithBuffer(estimate, APP_CONFIG.gasLimitBufferBps)).catch(() => {
+    if (!approval) throw new Error("Uniswap swap would revert now. Refresh quote.");
+    return null;
+  });
   const trade: TradeStepMetadata = {
     action: "swap",
     minTarget: tokenAmountMetadata(outputToken, outputInfo.symbol, outputInfo.decimals, minOut),
@@ -916,7 +919,10 @@ async function buildCarbonSteps(state: WalletState, opportunity: Opportunity): P
   });
   const data = txRequest.data || "0x";
   const to = getAddress(String(txRequest.to || APP_CONFIG.carbonController));
-  const gas = await cotiProvider.estimateGas({ from: state.owner, to, data, value: nativeValue }).then((estimate) => gasWithBuffer(estimate, APP_CONFIG.gasLimitBufferBps)).catch(() => null);
+  const gas = await cotiProvider.estimateGas({ from: state.owner, to, data, value: nativeValue }).then((estimate) => gasWithBuffer(estimate, APP_CONFIG.gasLimitBufferBps)).catch(() => {
+    if (!approval) throw new Error("Carbon swap would revert now. Refresh quote.");
+    return null;
+  });
   const trade: TradeStepMetadata = {
     action: "swap",
     minTarget: tokenAmountMetadata(leg.target, targetInfo.symbol, targetInfo.decimals, minReturnRaw),

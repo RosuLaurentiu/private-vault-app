@@ -27,6 +27,10 @@ export interface PreSignStateReader {
   balanceOf(chain: ChainKey, tokenAddress: string, owner: string): Promise<bigint>;
 }
 
+export interface StepSimulator {
+  call(chain: ChainKey, tx: PreparedStep["tx"]): Promise<unknown>;
+}
+
 function providerForChain(chain: ChainKey): JsonRpcProvider {
   return chain === "ethereum" ? ethProvider : cotiProvider;
 }
@@ -41,6 +45,12 @@ export const defaultPreSignStateReader: PreSignStateReader = {
     if (isNativeToken(tokenAddress)) return providerForChain(chain).getBalance(owner);
     const contract = new Contract(tokenAddress, ERC20_ABI, providerForChain(chain));
     return contract.balanceOf(owner) as Promise<bigint>;
+  },
+};
+
+export const defaultStepSimulator: StepSimulator = {
+  async call(chain, tx) {
+    return providerForChain(chain).call(tx);
   },
 };
 
@@ -71,6 +81,18 @@ function warning(step: PreparedStep, code: PreSignCheckCode, message: string): P
     stepIndex: step.index,
     stepLabel: step.label,
   };
+}
+
+export async function assertPreparedStepStillExecutable(
+  step: PreparedStep,
+  simulator: StepSimulator = defaultStepSimulator,
+): Promise<void> {
+  if (step.type !== "uniswap-swap" && step.type !== "carbon-swap") return;
+  try {
+    await simulator.call(step.chain, step.tx);
+  } catch {
+    throw new Error(`${step.label} would revert now. Refresh quote before signing.`);
+  }
 }
 
 export async function checkPreparedStepBeforeSigning(

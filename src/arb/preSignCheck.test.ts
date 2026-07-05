@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APP_CONFIG, NATIVE_COTI } from "./config";
-import { checkPreparedStepBeforeSigning, preSignWarningText, type PreSignStateReader } from "./preSignCheck";
+import { assertPreparedStepStillExecutable, checkPreparedStepBeforeSigning, preSignWarningText, type PreSignStateReader, type StepSimulator } from "./preSignCheck";
 import { tokenAmountMetadata } from "./tradeMetadata";
 import type { PreparedStep } from "./types";
 
@@ -79,5 +79,26 @@ describe("pre-sign wallet state check", () => {
     const warnings = await checkPreparedStepBeforeSigning("0xWallet", bridgeStep, nativeReader);
     expect(warnings.map((item) => item.code)).toEqual(["balance-changed", "balance-low"]);
     expect(allowanceReads).toBe(0);
+  });
+
+  it("blocks a swap that would revert before signing", async () => {
+    const simulator: StepSimulator = {
+      call: async () => {
+        throw new Error("execution reverted");
+      },
+    };
+    await expect(assertPreparedStepStillExecutable(step({ label: "Carbon swap", type: "carbon-swap" }), simulator))
+      .rejects.toThrow("Carbon swap would revert now. Refresh quote before signing.");
+  });
+
+  it("does not simulate non-swap steps", async () => {
+    let calls = 0;
+    const simulator: StepSimulator = {
+      call: async () => {
+        calls += 1;
+      },
+    };
+    await assertPreparedStepStillExecutable(step({ type: "approval" }), simulator);
+    expect(calls).toBe(0);
   });
 });

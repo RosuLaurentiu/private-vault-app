@@ -63,6 +63,11 @@ function pairTitle(pairId: PairId): string {
   return pairId === "coti-gcoti" ? "COTI/gCOTI" : "COTI/USDC";
 }
 
+function usdPriceFmt(value?: number | null): string {
+  if (!Number.isFinite(value)) return "COTI/USD n/a";
+  return `COTI/USD $${numberFmt(Number(value), 6)}`;
+}
+
 function isQuotedOpportunity(item: OpportunityListItem): item is QuoteResult["opportunities"][number] {
   return "summary" in item && "netProfitUsd" in item;
 }
@@ -656,7 +661,12 @@ function App() {
               <h2>Opportunities</h2>
               <p>{message}</p>
             </div>
-            {quote ? <span className="fresh">Updated {new Date(quote.generatedAtUtc).toLocaleTimeString()}</span> : null}
+            {quote ? (
+              <div className="quote-meta">
+                <span className="fresh">Updated {new Date(quote.generatedAtUtc).toLocaleTimeString()}</span>
+                <span className={`fresh ${quote.prices.cotiUsdSource === "fresh" ? "" : "warn"}`}>{usdPriceFmt(quote.prices.cotiUsd)}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="opportunities">

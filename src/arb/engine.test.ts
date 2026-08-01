@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APP_CONFIG, ZERO_ADDRESS } from "./config";
-import { arbLegAmounts, bridgeRouteMetadata, buildRebalanceSummary, opportunityBlocker, selectRebalanceSuggestions } from "./engine";
+import { arbLegAmounts, bridgeRouteMetadata, buildRebalanceSummary, opportunityBlocker, parseCoinGeckoUsdPrice, selectRebalanceSuggestions } from "./engine";
 import type { Opportunity, RebalanceSuggestion, TokenBalance, WalletBalances } from "./types";
 
 function opportunity(direction: Opportunity["direction"], inputAmount: number, bridgeOutputAmount: number): Pick<Opportunity, "direction" | "summary"> {
@@ -106,6 +106,15 @@ describe("arb net eligibility", () => {
 
   it("does not use the old ten dollar warning", () => {
     expect(opportunityBlocker([], 9.99)).toBeUndefined();
+  });
+});
+
+describe("COTI/USD quote math", () => {
+  it("parses the CoinGecko payload shape used by the Discord bot", () => {
+    expect(parseCoinGeckoUsdPrice({ coti: { usd: 0.016131 } }, "coti")).toBe(0.016131);
+    expect(parseCoinGeckoUsdPrice({ coti: { usd: "0.016131" } }, "coti")).toBe(0.016131);
+    expect(parseCoinGeckoUsdPrice({ coti: { usd: 0 } }, "coti")).toBeNull();
+    expect(parseCoinGeckoUsdPrice({}, "coti")).toBeNull();
   });
 });
 

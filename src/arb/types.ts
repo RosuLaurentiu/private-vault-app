@@ -93,7 +93,14 @@ export interface QuoteResult {
   balances: WalletBalances;
   allowances: WalletAllowances;
   opportunities: Opportunity[];
-  prices: { cotiUsd: number | null; ethUsd: number | null };
+  prices: {
+    cotiUsd: number | null;
+    cotiUsdError?: string;
+    cotiUsdSource: "fresh" | "unavailable";
+    ethUsd: number | null;
+    ethUsdError?: string;
+    ethUsdSource: "fresh" | "unavailable";
+  };
   rebalance: RebalanceSummary;
 }
 

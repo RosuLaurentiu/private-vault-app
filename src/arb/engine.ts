@@ -56,14 +56,36 @@ interface FeeRates {
   ethUsdPerGas: number;
 }
 
+interface PriceLookup {
+  error?: string;
+  source: "fresh" | "unavailable";
+  value: number | null;
+}
+
 function token(provider: JsonRpcProvider, address: string): Contract {
   return new Contract(address, ERC20_ABI, provider);
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
   return response.json() as Promise<T>;
+}
+
+function cacheBustUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("_walletConsoleTs", String(Date.now()));
+  return parsed.toString();
+}
+
+export function parseCoinGeckoUsdPrice(payload: unknown, id: string): number | null {
+  const record = payload as Record<string, { usd?: unknown } | undefined>;
+  const value = Number(record?.[id]?.usd);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function canonicalPairKey(tokenA: string, tokenB: string): string {
@@ -241,14 +263,29 @@ export async function loadWalletState(walletAddress: string): Promise<WalletStat
   };
 }
 
-async function prices(): Promise<{ cotiUsd: number | null; ethUsd: number | null }> {
+async function fetchUsdPrice(url: string, id: string): Promise<PriceLookup> {
+  try {
+    const payload = await fetchJson<unknown>(cacheBustUrl(url), { cache: "no-store" });
+    const value = parseCoinGeckoUsdPrice(payload, id);
+    if (!value) throw new Error(`Invalid ${id}/USD price payload.`);
+    return { source: "fresh", value };
+  } catch (error) {
+    return { error: errorMessage(error), source: "unavailable", value: null };
+  }
+}
+
+async function prices(): Promise<QuoteResult["prices"]> {
   const [coti, eth] = await Promise.all([
-    fetchJson<{ coti?: { usd?: number } }>(APP_CONFIG.cotiUsdPriceApi).catch(() => null),
-    fetchJson<{ ethereum?: { usd?: number } }>(APP_CONFIG.ethUsdPriceApi).catch(() => null),
+    fetchUsdPrice(APP_CONFIG.cotiUsdPriceApi, "coti"),
+    fetchUsdPrice(APP_CONFIG.ethUsdPriceApi, "ethereum"),
   ]);
   return {
-    cotiUsd: Number(coti?.coti?.usd) || null,
-    ethUsd: Number(eth?.ethereum?.usd) || null,
+    cotiUsd: coti.value,
+    cotiUsdError: coti.error,
+    cotiUsdSource: coti.source,
+    ethUsd: eth.value,
+    ethUsdError: eth.error,
+    ethUsdSource: eth.source,
   };
 }
 

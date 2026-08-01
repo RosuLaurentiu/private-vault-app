@@ -332,6 +332,14 @@ small {
   margin-bottom: 0;
 }
 
+.quote-meta {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .fresh,
 .pill {
   flex-shrink: 0;
@@ -354,6 +362,11 @@ small {
 }
 
 .pill.warn {
+  color: #fde68a;
+  border-color: rgba(248, 189, 69, 0.48);
+}
+
+.fresh.warn {
   color: #fde68a;
   border-color: rgba(248, 189, 69, 0.48);
 }

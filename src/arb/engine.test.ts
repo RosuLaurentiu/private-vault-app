@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APP_CONFIG, ZERO_ADDRESS } from "./config";
-import { arbLegAmounts, bridgeRouteMetadata, buildRebalanceSummary, opportunityBlocker, parseCoinGeckoUsdPrice, selectRebalanceSuggestions } from "./engine";
+import { arbLegAmounts, bridgeRouteMetadata, buildRebalanceSummary, candidateAmounts, opportunityBlocker, parseCoinGeckoUsdPrice, selectRebalanceSuggestions } from "./engine";
 import type { Opportunity, RebalanceSuggestion, TokenBalance, WalletBalances } from "./types";
 
 function opportunity(direction: Opportunity["direction"], inputAmount: number, bridgeOutputAmount: number): Pick<Opportunity, "direction" | "summary"> {
@@ -115,6 +115,14 @@ describe("COTI/USD quote math", () => {
     expect(parseCoinGeckoUsdPrice({ coti: { usd: "0.016131" } }, "coti")).toBe(0.016131);
     expect(parseCoinGeckoUsdPrice({ coti: { usd: 0 } }, "coti")).toBeNull();
     expect(parseCoinGeckoUsdPrice({}, "coti")).toBeNull();
+  });
+});
+
+describe("quote search range", () => {
+  it("scans COTI/USDC amounts above the old 250 USDC probe ceiling", () => {
+    const amounts = candidateAmounts(3000, "coti-usdc");
+    expect(amounts.some((amount) => amount > 900 && amount < 1100)).toBe(true);
+    expect(Math.max(...amounts)).toBe(3000);
   });
 });
 

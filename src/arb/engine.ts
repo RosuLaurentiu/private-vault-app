@@ -2,7 +2,7 @@ import { ChainCache } from "@bancor/carbon-sdk/chain-cache";
 import { ContractsApi } from "@bancor/carbon-sdk/contracts-api";
 import { Toolkit } from "@bancor/carbon-sdk/strategy-management";
 import { Contract, Interface, JsonRpcProvider, formatEther, formatUnits, getAddress } from "ethers";
-import { ERC20_ABI, UNISWAP_FACTORY_ABI, UNISWAP_ROUTER_ABI } from "./abis";
+import { ERC20_ABI, UNISWAP_FACTORY_ABI, UNISWAP_PAIR_ABI, UNISWAP_ROUTER_ABI } from "./abis";
 import { APP_CONFIG, NATIVE_COTI, ZERO_ADDRESS } from "./config";
 import { assertAllowedPlan, assertAllowedRebalancePlan } from "./guards";
 import { decimalStringToRaw, tokenAmountMetadata } from "./tradeMetadata";
@@ -435,7 +435,7 @@ export function selectRebalanceSuggestions(rebalance: RebalanceSummary, tokens: 
   return { executable, reason, selected };
 }
 
-function candidateAmounts(max: number, pairId: PairId, steps = 24): number[] {
+export function candidateAmounts(max: number, pairId: PairId, steps = 24): number[] {
   const probes = pairId === "coti-usdc" ? APP_CONFIG.probeUsdcAmounts : APP_CONFIG.probeCotiAmounts;
   const candidateSet = new Set<number>([max, ...probes]);
   for (let i = 1; i <= steps; i += 1) {
@@ -463,6 +463,33 @@ function refinementAmounts(best: number, max: number): number[] {
     .map((value) => Number(value.toFixed(6)))
     .filter((value) => value > 0 && value <= max)
     .sort((a, b) => a - b);
+}
+
+function uniswapTokenDecimals(address: string): number {
+  return sameAddress(address, APP_CONFIG.uniswap.usdc) ? 6 : 18;
+}
+
+async function uniswapPairReserves(tokenA: string, tokenB: string): Promise<Record<string, number> | null> {
+  const factory = new Contract(APP_CONFIG.uniswap.factory, UNISWAP_FACTORY_ABI, ethProvider);
+  const pairAddress = await factory.getPair(tokenA, tokenB) as string;
+  if (sameAddress(pairAddress, ZERO_ADDRESS)) return null;
+  const pair = new Contract(pairAddress, UNISWAP_PAIR_ABI, ethProvider);
+  const [token0, token1, reserves] = await Promise.all([
+    pair.token0() as Promise<string>,
+    pair.token1() as Promise<string>,
+    pair.getReserves() as Promise<[bigint, bigint, number]>,
+  ]);
+  return {
+    [token0.toLowerCase()]: Number(formatUnits(reserves[0], uniswapTokenDecimals(token0))),
+    [token1.toLowerCase()]: Number(formatUnits(reserves[1], uniswapTokenDecimals(token1))),
+  };
+}
+
+async function cotiUsdcQuoteSearchMax(): Promise<number | null> {
+  const path = await uniswapPath("coti-usdc", "buy_on_uniswap_sell_on_carbon");
+  const reserves = await uniswapPairReserves(path[0], path[1]);
+  const usdcReserve = Number(reserves?.[APP_CONFIG.uniswap.usdc.toLowerCase()]);
+  return Number.isFinite(usdcReserve) && usdcReserve > 0 ? usdcReserve * 0.3 : null;
 }
 
 function balanceBlocker(label: string, required: number, available: number): string | null {
@@ -624,9 +651,9 @@ function makeOpportunity(
   };
 }
 
-async function bestOpportunity(state: WalletState, pairId: PairId, direction: Direction, cotiUsd: number | null, fees: FeeRates): Promise<Opportunity | null> {
+async function bestOpportunity(state: WalletState, pairId: PairId, direction: Direction, cotiUsd: number | null, fees: FeeRates, quoteSearchMax?: number | null): Promise<Opportunity | null> {
   const { source } = sourceInfo(state, pairId, direction);
-  const max = source.value;
+  const max = Math.max(source.value, quoteSearchMax || 0);
   let best: Opportunity | null = null;
   let lastError: unknown = null;
   let bestInputAmount: number | null = null;
@@ -655,7 +682,7 @@ async function bestOpportunity(state: WalletState, pairId: PairId, direction: Di
     }
   }
   };
-  await evaluateAmounts(candidateAmounts(max, pairId));
+  await evaluateAmounts(candidateAmounts(max, pairId, pairId === "coti-usdc" ? 80 : 24));
   if (bestInputAmount !== null) await evaluateAmounts(refinementAmounts(bestInputAmount, max));
   if (!best && lastError) {
     console.warn(`Quote failed for ${pairId} ${direction}:`, lastError);
@@ -666,11 +693,15 @@ async function bestOpportunity(state: WalletState, pairId: PairId, direction: Di
 async function buildQuoteFromState(state: WalletState): Promise<QuoteResult> {
   const price = await prices();
   const fees = await feeRates(price.cotiUsd, price.ethUsd);
+  const cotiUsdcSearchMax = await cotiUsdcQuoteSearchMax().catch((error) => {
+    console.warn("COTI/USDC quote search bound failed:", error);
+    return null;
+  });
   const settled = await Promise.all([
     bestOpportunity(state, "coti-gcoti", "buy_on_uniswap_sell_on_carbon", price.cotiUsd, fees),
     bestOpportunity(state, "coti-gcoti", "buy_on_carbon_sell_on_uniswap", price.cotiUsd, fees),
-    bestOpportunity(state, "coti-usdc", "buy_on_uniswap_sell_on_carbon", price.cotiUsd, fees),
-    bestOpportunity(state, "coti-usdc", "buy_on_carbon_sell_on_uniswap", price.cotiUsd, fees),
+    bestOpportunity(state, "coti-usdc", "buy_on_uniswap_sell_on_carbon", price.cotiUsd, fees, cotiUsdcSearchMax),
+    bestOpportunity(state, "coti-usdc", "buy_on_carbon_sell_on_uniswap", price.cotiUsd, fees, cotiUsdcSearchMax),
   ]);
   const byPair: Opportunity[] = (["coti-gcoti", "coti-usdc"] as PairId[]).map((pairId) => {
     const pairBest = settled.filter((item): item is Opportunity => !!item && item.pairId === pairId).sort((a, b) => {

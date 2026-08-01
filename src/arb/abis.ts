@@ -15,3 +15,9 @@ export const UNISWAP_ROUTER_ABI = [
 export const UNISWAP_FACTORY_ABI = [
   "function getPair(address tokenA,address tokenB) view returns (address)",
 ] as const;
+
+export const UNISWAP_PAIR_ABI = [
+  "function getReserves() view returns (uint112 reserve0,uint112 reserve1,uint32 blockTimestampLast)",
+  "function token0() view returns (address)",
+  "function token1() view returns (address)",
+] as const;
